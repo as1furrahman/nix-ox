@@ -44,7 +44,11 @@
       "amd_pstate=active"
       "nvme_core.default_ps_max_latency_us=5500"
       "nowatchdog"
+      "resume=/dev/nvme0n1p2"         # hibernate resume from swap partition
     ];
+
+    # Hibernate resume
+    resumeDevice = "/dev/nvme0n1p2";
 
     initrd.kernelModules = [ "amdgpu" ];
   };
@@ -67,11 +71,45 @@
   i18n.defaultLocale = "en_US.UTF-8";
 
   # ──────────────────────────────────────────────
-  # No Desktop Environment, No Display Manager
+  # Display Manager — greetd + tuigreet
   # ──────────────────────────────────────────────
+  # Minimal TUI greeter — no X11 dependency, native Wayland.
+  # initial_session auto-logs in on first boot (skips password);
+  # default_session (tuigreet) appears on subsequent logins / logout.
 
   services.xserver.enable = false;
-  services.displayManager.enable = false;
+
+  services.greetd = {
+    enable = true;
+    settings = {
+      initial_session = {
+        command = "Hyprland";
+        user = "asif";
+      };
+      default_session = {
+        command = ''
+          ${pkgs.greetd.tuigreet}/bin/tuigreet \
+            --time \
+            --asterisks \
+            --remember \
+            --remember-session \
+            --cmd Hyprland
+        '';
+        user = "greeter";
+      };
+    };
+  };
+
+  # Suppress greetd's own TTY output from cluttering the login screen
+  systemd.services.greetd.serviceConfig = {
+    Type = "idle";
+    StandardInput = "tty";
+    StandardOutput = "tty";
+    StandardError = "journal";
+    TTYReset = true;
+    TTYVHangup = true;
+    TTYVTDisallocate = true;
+  };
 
   # ──────────────────────────────────────────────
   # User
@@ -130,6 +168,16 @@
   services.udisks2.enable = true;
   services.gvfs.enable = true;
   services.fstrim.enable = true;
+
+  # ──────────────────────────────────────────────
+  # zram — Compressed RAM swap
+  # ──────────────────────────────────────────────
+
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 50;            # 50% of 16 GB = 8 GB compressed swap in RAM
+  };
 
   # ──────────────────────────────────────────────
   # Btrfs Maintenance

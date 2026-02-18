@@ -1,589 +1,785 @@
 # NixOS — Asus Zenbook S 13 OLED (UM5302TA)
 
-Minimal NixOS with Hyprland, Home Manager, Ambxst shell, and OLED-optimized defaults.
+Declarative, reproducible NixOS configuration for the Asus Zenbook S 13 OLED, built around Hyprland and the Ambxst desktop shell. Optimized for OLED burn-in protection, AMD Ryzen 7 6800U power management, and a minimal yet fully-featured Wayland desktop.
 
 ---
 
 ## Hardware
 
-| Component | Model |
-|-----------|-------|
-| CPU | AMD Ryzen 7 6800U (Zen 3+, Rembrandt) |
-| GPU | AMD Radeon 680M (RDNA 2, integrated) |
-| Display | 13.3″ 2880×1800 OLED, 60 Hz |
-| RAM | 16 GB LPDDR5 (soldered) |
-| SSD | Samsung 990 Pro 1 TB (NVMe) |
-| Wi-Fi/BT | MediaTek MT7922 (RZ616) |
-| Audio | Realtek ALC294 |
+| Component | Details |
+|---|---|
+| **Model** | Asus Zenbook S 13 OLED (UM5302TA) |
+| **CPU** | AMD Ryzen 7 6800U (Zen 3+, 8C/16T) |
+| **GPU** | AMD Radeon 680M (RDNA 2, integrated) |
+| **Display** | 13.3" 2880×1800 OLED, 60 Hz |
+| **RAM** | 16 GB LPDDR5 (soldered) |
+| **Storage** | Samsung 990 Pro 1 TB NVMe (upgraded) |
+| **Wi-Fi/BT** | MediaTek MT7922 (RZ616) |
 
 ---
 
-## File Map
+## Architecture
 
 ```
-/etc/nixos/
-├── flake.nix                   # Flake entry — nixpkgs-unstable + Home Manager
-├── configuration.nix           # System: boot, kernel, services, snapper, fonts
-├── hardware-configuration.nix  # Auto-generated (nixos-generate-config)
-├── hardware-tweaks.nix         # Zenbook-specific: GPU, CPU, TLP, sensors
-├── hyprland.nix                # System-level: Hyprland binary, portals, env vars
-└── home.nix                    # User-level: packages, Hyprland config, theming, shell
+flake.nix                  # Entry point — nixpkgs-unstable + Home Manager inputs
+├── configuration.nix      # System: boot, networking, audio, bluetooth, fonts, services
+├── hardware-configuration.nix  # Auto-generated — NOT in this repo
+├── hardware-tweaks.nix    # Zenbook-specific: AMD GPU/CPU, TLP, NVMe, sensors
+├── hyprland.nix           # System-level Hyprland: portals, dconf, session variables
+└── home.nix               # User: packages, Hyprland settings, theming, keybinds, services
 ```
 
-**What lives where:**
+### Design Decisions
 
-| Concern | File | Why |
-|---------|------|-----|
-| GRUB, kernel, kernel params | configuration.nix | Boot-level, needs root |
-| PipeWire, Bluetooth, NetworkManager | configuration.nix | System daemons |
-| Snapper, Btrfs scrub, fstrim | configuration.nix | Root filesystem operations |
-| Fonts | configuration.nix | System-wide font cache |
-| AMD GPU/CPU, TLP, firmware | hardware-tweaks.nix | Hardware-specific tuning |
-| Hyprland binary, XDG portals | hyprland.nix | System programs |
-| Wayland session variables | hyprland.nix | Must be set before user session |
-| User packages (ripgrep, mpv, etc.) | home.nix | User-scoped, Home Manager |
-| Hyprland settings, keybinds, rules | home.nix | Per-user Hyprland config |
-| hypridle | home.nix | HM service module |
-| Ghostty, Git, Bash, Firefox | home.nix | User-level programs |
-| GTK/Qt theme, cursors | home.nix | User environment |
-| Ambxst autostart | home.nix | User session exec-once |
+**Hyprland package management** — The NixOS module (`programs.hyprland.enable`) provides the Hyprland binary and portals at the system level. The Home Manager module is configured with `package = null; portalPackage = null` to use the system package, preventing version mismatches between system and user installs.
+
+**Two-tier swap** — zram provides 8 GB of compressed in-RAM swap (priority 100) for everyday use with zero disk I/O. A 16 GiB on-disk swap partition (priority −2) serves as hibernate target and overflow. The kernel `resume=` parameter and `boot.resumeDevice` are configured for hibernate support.
+
+**Theme propagation** — Dark mode is enforced through three layers: `GTK_THEME=Adwaita:dark` (environment variable for GTK2/3), `gtk-application-prefer-dark-theme` (GTK3/4 settings.ini), and `dconf: org/gnome/desktop/interface/color-scheme = "prefer-dark"` (libadwaita/GTK4 apps that only read dconf).
+
+**Power management** — TLP handles CPU governor dynamically (performance on AC, powersave on battery). No static `cpuFreqGovernor` is set at the NixOS level to avoid conflicts. `amd_pstate=active` is passed as a kernel parameter for the AMD P-state driver.
+
+**Ambxst as the sole shell** — Ambxst (Axenide's Quickshell-based desktop shell) provides the bar, launcher, notifications, clipboard manager, power menu, Wi-Fi/Bluetooth controls, and a built-in polkit agent. A polkit-gnome systemd service runs as a fallback for early-boot coverage or shell crashes.
+
+**Display manager — greetd + tuigreet** — A minimal TUI-based login manager with no X11 dependency. The `initial_session` block auto-logs in on first boot (for seamless initial setup), while `default_session` presents tuigreet on subsequent logins. UWSM was evaluated but not adopted due to known bugs with `XDG_CURRENT_DESKTOP` misidentification; the Home Manager systemd integration (`wayland.windowManager.hyprland.systemd.enable = true`) handles session target activation instead.
+
+**Visual foundation (Ambxst-synchronized)** — The Hyprland config provides the visual canvas that Ambxst paints on. Ambxst overrides border colors and some settings via IPC at launch, so the Nix config defines the pre-Ambxst baseline and the properties Ambxst doesn't touch:
+
+- *Blur*: 4-pass, size-8 frosted glass with `popups_ignorealpha` for clean Ambxst popup rendering
+- *Gaps*: Inner 6, outer 14 — enough breathing room for Ambxst's floating bar and notification popups
+- *Rounding*: 14px — matches Ambxst's own rounded UI elements
+- *Borders*: 3px warm gradient (gold → peach, 45°) with `borderangle` loop animation. Ambxst overrides these with its wallpaper-derived palette
+- *Shadows*: Wide (22px range), soft (power 2), with slight downward offset — optimized for OLED where true-black backgrounds swallow hard shadows
+- *Animations*: Five purpose-built bezier curves (snappy, fluid, spring, ease, exit) with tighter durations than stock
+- *Layer rules*: Explicit blur and alpha rules for `ambxst:*` namespace (v1.0+), `shell:*` fallback, GTK layer shell, and hyprlock
+- *Cursor*: Bibata-Modern-Ice (white variant — high visibility on dark OLED backgrounds)
 
 ---
 
-## Partition Layout
+## Pre-Installation Requirements
 
-```
-Device            Size    Type          Mount
-/dev/nvme0n1p1    1 GiB   EFI (ef00)   /boot
-/dev/nvme0n1p2    20 GiB  swap (8200)  [swap]
-/dev/nvme0n1p3    ~931 G  Btrfs (8300) /
-```
+- A USB drive (2 GB minimum) for the NixOS installer
+- An internet connection (Ethernet recommended during install; Wi-Fi works but requires extra steps in the live environment)
+- The NixOS minimal ISO image, downloadable from [nixos.org/download](https://nixos.org/download/#nixos-iso)
 
-20 GiB swap enables hibernate with 16 GB RAM.
+### Prepare the Installer
 
-### Btrfs Subvolumes
+Download the **NixOS Minimal ISO** (not Graphical) and write it to a USB drive:
 
-```
-Subvolume    Mount Point    Snapshotted?
-@            /              Yes (snapper: root)
-@home        /home          Yes (snapper: home)
-@nix         /nix           No  (reproducible via flake)
-@log         /var/log       No  (ephemeral)
-@snapshots   /.snapshots    —   (snapshot storage for root)
+```bash
+# From an existing Linux system (replace /dev/sdX with your USB device)
+sudo dd if=nixos-minimal-*.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
-Mount options for all: `compress=zstd:1,noatime,ssd,discard=async,space_cache=v2`
+On Windows, use [Rufus](https://rufus.ie/) or [balenaEtcher](https://etcher.balena.io/).
+
+### BIOS Settings
+
+Boot into BIOS (press `F2` during POST) and verify:
+
+1. **Secure Boot** → Disabled (NixOS can work with Secure Boot, but it complicates the initial setup)
+2. **Boot Mode** → UEFI only (not CSM/Legacy)
+3. **Boot Priority** → USB first (or use `F8` boot menu to select the USB)
 
 ---
 
-## Installation — Step by Step
+## Installation
 
-### 1. Boot NixOS Minimal ISO
+### Step 1 — Boot the Live Environment
 
-Download from https://nixos.org/download — use the minimal ISO. Boot from USB.
-
-### 2. Partition the Drive
+Boot from the USB drive. You will land at a root shell. If you need Wi-Fi:
 
 ```bash
-sudo gdisk /dev/nvme0n1
+# Interactive Wi-Fi connection
+nmtui
+# Or command-line:
+nmcli device wifi connect "SSID" password "PASSWORD"
 ```
 
-| Partition | Command | Size | Type Code |
-|-----------|---------|------|-----------|
-| EFI | `n`, `+1G` | 1 GiB | `ef00` |
-| Swap | `n`, `+20G` | 20 GiB | `8200` |
-| Root | `n`, (default) | Remaining | `8300` |
-
-Write with `w`.
-
-### 3. Format Partitions
+Verify connectivity:
 
 ```bash
-sudo mkfs.fat -F 32 -n BOOT /dev/nvme0n1p1
-sudo mkswap -L swap /dev/nvme0n1p2
-sudo mkfs.btrfs -L nixos -f /dev/nvme0n1p3
+ping -c 3 nixos.org
 ```
 
-### 4. Create Btrfs Subvolumes
+### Step 2 — Identify the Target Drive
 
 ```bash
-sudo mount /dev/nvme0n1p3 /mnt
-
-sudo btrfs subvolume create /mnt/@
-sudo btrfs subvolume create /mnt/@home
-sudo btrfs subvolume create /mnt/@nix
-sudo btrfs subvolume create /mnt/@log
-sudo btrfs subvolume create /mnt/@snapshots
-
-sudo umount /mnt
+lsblk
 ```
 
-### 5. Mount Everything
+The Samsung 990 Pro will appear as `nvme0n1`. Confirm the drive size (≈931.5 GiB for 1 TB) and ensure you are targeting the correct device. The following steps will **destroy all data** on this drive.
+
+### Step 3 — Partition the Drive
+
+This configuration expects three partitions:
+
+| Partition | Type | Size | Purpose |
+|---|---|---|---|
+| `nvme0n1p1` | EFI System (FAT32) | 1 GiB | Boot partition (`/boot`) |
+| `nvme0n1p2` | Linux swap | 16 GiB | Swap (hibernate target) |
+| `nvme0n1p3` | Linux filesystem (Btrfs) | Remainder | Root filesystem |
+
+The EFI partition is generously sized at 1 GiB to accommodate multiple kernel generations and GRUB assets without running out of space. The swap partition is sized to match RAM (16 GiB) for reliable hibernate support.
 
 ```bash
-OPTS="compress=zstd:1,noatime,ssd,discard=async,space_cache=v2"
-
-sudo mount -o subvol=@,$OPTS /dev/nvme0n1p3 /mnt
-sudo mkdir -p /mnt/{home,nix,var/log,.snapshots,boot}
-
-sudo mount -o subvol=@home,$OPTS      /dev/nvme0n1p3 /mnt/home
-sudo mount -o subvol=@nix,$OPTS       /dev/nvme0n1p3 /mnt/nix
-sudo mount -o subvol=@log,$OPTS       /dev/nvme0n1p3 /mnt/var/log
-sudo mount -o subvol=@snapshots,$OPTS /dev/nvme0n1p3 /mnt/.snapshots
-sudo mount /dev/nvme0n1p1 /mnt/boot
-
-sudo swapon /dev/nvme0n1p2
+# Wipe existing partition table and create a fresh GPT layout
+gdisk /dev/nvme0n1
 ```
 
-### 6. Create Snapper Snapshot Subvolumes
+Inside `gdisk`:
 
-Snapper requires a `.snapshots` subvolume inside each managed subvolume:
+```
+Command: o          ← create new empty GPT partition table
+Proceed? Y
+
+Command: n          ← new partition (EFI)
+Partition number: 1
+First sector: (accept default)
+Last sector: +1G
+Hex code: EF00
+
+Command: n          ← new partition (swap)
+Partition number: 2
+First sector: (accept default)
+Last sector: +16G
+Hex code: 8200
+
+Command: n          ← new partition (Btrfs root)
+Partition number: 3
+First sector: (accept default)
+Last sector: (accept default — uses remaining space)
+Hex code: 8300
+
+Command: w          ← write and exit
+Proceed? Y
+```
+
+### Step 4 — Format the Partitions
 
 ```bash
-# For /home snapshots
-sudo mkdir -p /mnt/home/.snapshots
-sudo btrfs subvolume create /mnt/home/.snapshots
+# EFI partition
+mkfs.fat -F 32 -n EFI /dev/nvme0n1p1
+
+# Swap partition
+mkswap -L SWAP /dev/nvme0n1p2
+
+# Btrfs root partition
+mkfs.btrfs -L NIXOS -f /dev/nvme0n1p3
 ```
 
-The root `/.snapshots` is already handled by `@snapshots`.
+### Step 5 — Create Btrfs Subvolumes
 
-### 7. Generate Hardware Config
+The subvolume layout isolates system, user data, Nix store, logs, and snapshots. This allows targeted snapshot/restore operations and prevents snapshot bloat from the Nix store.
 
 ```bash
-sudo nixos-generate-config --root /mnt
+# Temporarily mount the Btrfs partition to create subvolumes
+mount /dev/nvme0n1p3 /mnt
+
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+btrfs subvolume create /mnt/@nix
+btrfs subvolume create /mnt/@log
+btrfs subvolume create /mnt/@snapshots
+
+# Unmount the temporary mount
+umount /mnt
 ```
 
-This creates `/mnt/etc/nixos/hardware-configuration.nix` — **do not overwrite this file**, it is auto-generated for your specific hardware.
+**Subvolume purposes:**
 
-### 8. Copy Configuration Files
+| Subvolume | Mountpoint | Purpose |
+|---|---|---|
+| `@` | `/` | Root filesystem |
+| `@home` | `/home` | User data — independently snapshotable |
+| `@nix` | `/nix` | Nix store — excluded from snapshots (reproducible from flake) |
+| `@log` | `/var/log` | Logs — preserved across root rollbacks |
+| `@snapshots` | `/.snapshots` | Snapper snapshot storage |
+
+### Step 6 — Mount Everything
+
+The mount options enable transparent zstd compression (level 1 for speed), asynchronous TRIM for the NVMe, and disable access-time updates to reduce write amplification on the SSD.
 
 ```bash
-# Copy all provided .nix files into /mnt/etc/nixos/
-# (flake.nix, configuration.nix, hardware-tweaks.nix, hyprland.nix, home.nix)
+# Common mount options
+OPTS="compress=zstd:1,noatime,discard=async,space_cache=v2"
 
-# IMPORTANT: Do NOT overwrite hardware-configuration.nix — it was
-# generated in the previous step and is unique to your machine.
+# Mount subvolumes
+mount -o subvol=@,$OPTS         /dev/nvme0n1p3 /mnt
+mkdir -p /mnt/{home,nix,var/log,.snapshots,boot}
+mount -o subvol=@home,$OPTS     /dev/nvme0n1p3 /mnt/home
+mount -o subvol=@nix,$OPTS      /dev/nvme0n1p3 /mnt/nix
+mount -o subvol=@log,$OPTS      /dev/nvme0n1p3 /mnt/var/log
+mount -o subvol=@snapshots,$OPTS /dev/nvme0n1p3 /mnt/.snapshots
+
+# Mount EFI partition
+mount /dev/nvme0n1p1 /mnt/boot
+
+# Enable swap
+swapon /dev/nvme0n1p2
 ```
 
-### 9. Install
+Verify the layout:
+
+```bash
+findmnt --target /mnt --real
+```
+
+You should see all five Btrfs subvolumes and the EFI partition mounted under `/mnt`.
+
+### Step 7 — Generate Hardware Configuration
+
+```bash
+nixos-generate-config --root /mnt
+```
+
+This creates two files in `/mnt/etc/nixos/`:
+
+- `hardware-configuration.nix` — Machine-specific: filesystem mounts, kernel modules, detected hardware. **Keep this file.** It is unique to your hardware and is not included in this repository.
+- `configuration.nix` — A default starter config. **This will be replaced** by the files from this repository.
+
+### Step 8 — Clone This Repository
+
+```bash
+# Remove the default configuration.nix (we'll replace it)
+rm /mnt/etc/nixos/configuration.nix
+
+# Install git in the live environment
+nix-env -iA nixos.git
+
+# Clone directly into /etc/nixos
+cd /mnt/etc/nixos
+git init
+git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+git pull origin main
+```
+
+Alternatively, if you have the files on a USB drive or downloaded manually:
+
+```bash
+# Copy all .nix files except hardware-configuration.nix into /mnt/etc/nixos/
+cp flake.nix configuration.nix hardware-tweaks.nix hyprland.nix home.nix /mnt/etc/nixos/
+```
+
+**Verify the directory structure:**
+
+```bash
+ls -la /mnt/etc/nixos/
+```
+
+You should see:
+
+```
+flake.nix
+configuration.nix
+hardware-configuration.nix   ← auto-generated, unique to this machine
+hardware-tweaks.nix
+hyprland.nix
+home.nix
+```
+
+### Step 9 — Review and Personalize
+
+Before building, review and adjust the following:
+
+**`configuration.nix`:**
+- `time.timeZone` — Currently set to `"Asia/Dhaka"`. Change to your timezone. List available zones with `timedatectl list-timezones`.
+- `i18n.defaultLocale` — Currently `"en_US.UTF-8"`. Change if needed.
+- `users.users.asif` — Change username if desired. If you change it, also update `home-manager.users.asif` in `flake.nix` and the `home` block in `home.nix`.
+
+**`home.nix`:**
+- `programs.git.userName` and `programs.git.userEmail` — Set your actual Git identity.
+
+**`hardware-configuration.nix`:**
+- This file was auto-generated and should already reflect the partitions and subvolumes you created. Open it and verify the mount options include `compress=zstd:1`, `noatime`, and `discard=async`, and that the subvolume paths are correct. If `nixos-generate-config` did not detect them perfectly, adjust manually.
+
+### Step 10 — Install
 
 ```bash
 cd /mnt/etc/nixos
-sudo nixos-install --flake .#zenbook
+
+# Install the system (the flake name matches nixosConfigurations.zenbook)
+nixos-install --flake .#zenbook
 ```
 
-You will be prompted to set the root password.
+This will:
+1. Download and build all packages from nixpkgs-unstable
+2. Set up the bootloader (GRUB with EFI)
+3. Create the user account
+4. Deploy all Home Manager configurations
 
-### 10. Reboot
+At the end you will be prompted to set the **root password**. Set a strong one.
+
+The initial build may take 15–45 minutes depending on internet speed, as it downloads the entire package closure.
+
+### Step 11 — Reboot
 
 ```bash
-sudo reboot
+umount -R /mnt
+reboot
 ```
+
+Remove the USB drive when prompted or during POST.
 
 ---
 
-## Post-Install Setup
+## First Boot
 
-### Set User Password
+### 1. Automatic Login
+
+On first boot, greetd's `initial_session` will automatically log you in as `asif` and launch Hyprland — no password prompt. On subsequent boots or after logging out, tuigreet will appear and ask for your password.
+
+### 2. Change Your Password
+
+Open a terminal (`Super + Return`) and set a strong password immediately:
 
 ```bash
-sudo passwd asif
+passwd
 ```
 
-### Install Ambxst
+The `initialPassword` in the configuration (`changeme`) is only for emergency TTY access.
 
-Ambxst is not in nixpkgs — install imperatively from its flake:
+### 3. Install Ambxst
+
+Ambxst is the desktop shell (bar, launcher, notifications, and more). It is installed via the Nix user profile, not the system configuration, because it is a third-party flake:
 
 ```bash
 nix profile add github:Axenide/Ambxst
 ```
 
-### Create Screenshots Directory
+This pulls Ambxst and its dependencies (Quickshell, etc.) into your user profile.
 
-The screenshot keybinds save to `~/Pictures/Screenshots/`:
+### 4. Launch Hyprland
 
-```bash
-mkdir -p ~/Pictures/Screenshots
-```
+Hyprland starts automatically via greetd. If you need to restart the session manually (e.g., after installing Ambxst), log out with `Super + Shift + Escape` and log back in via tuigreet.
 
-### Start Hyprland
+### 5. Connect to Wi-Fi (if not already connected)
 
-From the TTY after login:
+Use the Ambxst Wi-Fi widget in the bar, or from a terminal:
 
 ```bash
-Hyprland
+nmtui
 ```
 
-On subsequent boots, simply log in at the TTY and type `Hyprland`.
+### 6. Verify Services
 
-### Edit Git Identity
-
-Open `/etc/nixos/home.nix` and update:
-
-```nix
-programs.git = {
-  userName = "Your Name";
-  userEmail = "your@email.com";
-};
-```
-
-Then rebuild:
+Open a terminal (`Super + Return`) and check that key services are running:
 
 ```bash
-rebuild
-```
+# Hyprland session
+echo $XDG_CURRENT_DESKTOP     # should print: Hyprland
 
----
+# Audio
+wpctl status                   # PipeWire/WirePlumber status
 
-## Keybindings Reference
+# Bluetooth
+bluetoothctl show              # adapter info
 
-### Window Management
+# Idle daemon
+systemctl --user status hypridle
 
-| Keys | Action |
-|------|--------|
-| `SUPER + C` | Close window |
-| `SUPER + SHIFT + Escape` | Exit Hyprland |
-| `SUPER + Space` | Toggle floating |
-| `SUPER + P` | Pseudo-tile |
-| `SUPER + SHIFT + D` | Toggle split direction |
-| `SUPER + F` | Fullscreen |
-| `SUPER + SHIFT + F` | Fake fullscreen |
-| `SUPER + CTRL + F` | Maximize |
-| `SUPER + Y` | Pin floating window |
-| `SUPER + G` | Center floating window |
+# Polkit agent
+systemctl --user status polkit-gnome-authentication-agent-1
 
-### Focus (HJKL + Arrows)
-
-| Keys | Action |
-|------|--------|
-| `SUPER + H / ←` | Focus left |
-| `SUPER + L / →` | Focus right |
-| `SUPER + K / ↑` | Focus up |
-| `SUPER + J / ↓` | Focus down |
-
-### Move Tiled Windows
-
-| Keys | Action |
-|------|--------|
-| `SUPER + SHIFT + H / ←` | Move left |
-| `SUPER + SHIFT + L / →` | Move right |
-| `SUPER + SHIFT + K / ↑` | Move up |
-| `SUPER + SHIFT + J / ↓` | Move down |
-
-### Resize (hold to repeat)
-
-| Keys | Action |
-|------|--------|
-| `SUPER + CTRL + H / ←` | Shrink width |
-| `SUPER + CTRL + L / →` | Grow width |
-| `SUPER + CTRL + K / ↑` | Shrink height |
-| `SUPER + CTRL + J / ↓` | Grow height |
-
-### Move Floating (hold to repeat)
-
-| Keys | Action |
-|------|--------|
-| `SUPER + ALT + H / ←` | Move left |
-| `SUPER + ALT + L / →` | Move right |
-| `SUPER + ALT + K / ↑` | Move up |
-| `SUPER + ALT + J / ↓` | Move down |
-
-### Layout Switching
-
-| Keys | Action |
-|------|--------|
-| `SUPER + Tab` | Switch to Dwindle |
-| `SUPER + SHIFT + Tab` | Switch to Master |
-
-### Workspaces (1–10)
-
-| Keys | Action |
-|------|--------|
-| `SUPER + 1–9` | Go to workspace 1–9 |
-| `SUPER + 0` | Go to workspace 10 |
-| `SUPER + SHIFT + 1–9, 0` | Move window to workspace |
-| `SUPER + Z` | Previous workspace |
-| `SUPER + X` | Next active workspace |
-| `SUPER + Scroll` | Cycle workspaces |
-
-### Programs
-
-| Keys | Action |
-|------|--------|
-| `SUPER + Return` | Terminal (Ghostty) |
-| `SUPER + SHIFT + Return` | Floating terminal |
-| `SUPER + E` | File manager (Thunar) |
-| `SUPER + SHIFT + E` | Floating file manager |
-| `SUPER + W` | Browser (Firefox) |
-| `SUPER + SHIFT + W` | Private browser window |
-
-### Ambxst Shell
-
-| Keys | Action |
-|------|--------|
-| `SUPER + D` | Dashboard / App launcher |
-| `SUPER + A` | AI assistant |
-| `SUPER + ,` | Wallpaper selector |
-| `SUPER + SHIFT + B` | Reload shell CSS |
-| `SUPER + ALT + B` | Restart shell |
-| `SUPER + CTRL + B` | Toggle bar |
-
-### Screenshots
-
-| Keys | Action |
-|------|--------|
-| `Print` | Area → save + copy |
-| `SHIFT + Print` | Fullscreen → save + copy |
-| `SUPER + SHIFT + S` | Area → copy only |
-
-### System
-
-| Keys | Action |
-|------|--------|
-| `SUPER + CTRL + L` | Lock screen |
-| Media keys | Volume, brightness, playback |
-
-### Mouse
-
-| Keys | Action |
-|------|--------|
-| `SUPER + Left Click` | Drag window |
-| `SUPER + Right Click` | Resize window |
-| 3-finger swipe | Switch workspace |
-
----
-
-## OLED Protection
-
-This config includes multiple OLED burn-in mitigations:
-
-| Mechanism | Setting | Effect |
-|-----------|---------|--------|
-| Variable frame rate | `misc.vfr = true` | Reduces static pixel refresh |
-| DPMS off at 8 min | hypridle listener | Turns off all pixels completely |
-| Dim at 3 min | hypridle listener | Drops brightness to 10% |
-| Suspend at 15 min | hypridle listener | Full system sleep |
-| Ambxst auto-hide | Overlay panel | Not a persistent status bar |
-| Dark theme | GTK/Qt Adwaita-dark | Fewer lit pixels on OLED |
-| Dim inactive | `dim_inactive = true` | Reduces brightness on unfocused windows |
-
----
-
-## Daily Operations
-
-### Rebuild After Config Changes
-
-```bash
-rebuild
-# Alias for: sudo nixos-rebuild switch --flake /etc/nixos#zenbook
-```
-
-### Test Changes Without Committing
-
-```bash
-rebuild-test
-# Alias for: sudo nixos-rebuild test --flake /etc/nixos#zenbook
-```
-
-### Update All Inputs (nixpkgs + Home Manager)
-
-```bash
-update
-# Alias for: cd /etc/nixos && sudo nix flake update && rebuild
-```
-
-### Rollback
-
-```bash
-sudo nixos-rebuild switch --rollback
-```
-
-Or select previous generation from GRUB at boot.
-
-### Garbage Collect Old Generations
-
-```bash
-gc
-# Alias for: sudo nix-collect-garbage -d
-```
-
----
-
-## Snapper — Btrfs Snapshots
-
-### Create Manual Snapshot
-
-```bash
-sudo snapper -c root create --description "before major update"
-sudo snapper -c home create --description "before major update"
-```
-
-### List Snapshots
-
-```bash
+# Snapper timelines
 sudo snapper -c root list
 sudo snapper -c home list
 ```
 
-### Restore from Snapshot
+---
+
+## Post-Install Configuration
+
+### Move Config to Your Home Directory (Optional)
+
+If you prefer to manage your NixOS configuration from your home directory (e.g., as a Git working tree) rather than `/etc/nixos`:
 
 ```bash
-# Compare changes between snapshots
-sudo snapper -c root diff 1..2
+# Copy to home
+cp -r /etc/nixos ~/nixos-config
+cd ~/nixos-config
+git init
+git add .
+git commit -m "Initial NixOS configuration"
 
-# Restore a single file from snapshot N
-sudo snapper -c root undochange 1..2 /path/to/file
-
-# Full rollback requires booting from snapshot subvolume
-# (advanced — see NixOS + Btrfs rollback guides)
+# Rebuild using the new location
+sudo nixos-rebuild switch --flake ~/nixos-config#zenbook
 ```
 
-### Automatic Schedule
+Update the `rebuild` alias in `home.nix` if you change the config location:
 
-Configured via Snapper timeline (both `root` and `home`):
+```nix
+rebuild = "sudo nixos-rebuild switch --flake ~/nixos-config#zenbook";
+```
 
-| Interval | Retained |
-|----------|----------|
-| Hourly | 10 |
-| Daily | 7 |
-| Weekly | 4 |
-| Monthly | 6 |
-| Yearly | 0 |
+### Push to GitHub
 
-Boot snapshots are created automatically (`snapshotRootOnBoot = true`).
+```bash
+cd ~/nixos-config  # or /etc/nixos
+
+# Create .gitignore to exclude machine-specific file
+echo "hardware-configuration.nix" > .gitignore
+
+git add .
+git commit -m "NixOS Zenbook S 13 OLED configuration"
+git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO.git
+git push -u origin main
+```
+
+> **Note:** `hardware-configuration.nix` is excluded from the repository because it is machine-specific (contains UUIDs, detected kernel modules, and filesystem entries unique to your hardware). It should be regenerated with `nixos-generate-config` on each new installation.
+
+### Hyprpaper (Wallpaper)
+
+Create a hyprpaper configuration to set your wallpaper:
+
+```bash
+mkdir -p ~/.config/hypr
+cat > ~/.config/hypr/hyprpaper.conf << 'EOF'
+preload = ~/Pictures/Wallpapers/wallpaper.png
+wallpaper = eDP-1, ~/Pictures/Wallpapers/wallpaper.png
+splash = false
+EOF
+```
+
+Add `hyprpaper` to `exec-once` in `home.nix` if you want it to start automatically (Ambxst may handle wallpaper separately via its own wallpaper selector — `Super + ,`).
+
+### Hyprlock (Lock Screen)
+
+Create a hyprlock configuration:
+
+```bash
+cat > ~/.config/hypr/hyprlock.conf << 'EOF'
+background {
+    monitor =
+    path = ~/Pictures/Wallpapers/wallpaper.png
+    blur_passes = 3
+    blur_size = 8
+}
+
+input-field {
+    monitor =
+    size = 300, 50
+    outline_thickness = 3
+    dots_size = 0.25
+    dots_spacing = 0.15
+    fade_on_empty = true
+    placeholder_text = <i>Password...</i>
+    position = 0, -20
+    halign = center
+    valign = center
+}
+EOF
+```
 
 ---
 
-## Filesystem Health
+## Daily Usage
 
-### Btrfs Scrub (runs weekly automatically)
+### Keybindings
+
+#### Window Management
+
+| Keybind | Action |
+|---|---|
+| `Super + C` | Close window |
+| `Super + Space` | Toggle floating |
+| `Super + F` | Fullscreen |
+| `Super + Shift + F` | Fake fullscreen |
+| `Super + Ctrl + F` | Maximize |
+| `Super + P` | Pseudo-tile |
+| `Super + Shift + D` | Toggle dwindle split |
+| `Super + Y` | Pin floating window |
+| `Super + G` | Center floating window |
+| `Super + Tab` | Switch to dwindle layout |
+| `Super + Shift + Tab` | Switch to master layout |
+| `Super + Shift + Escape` | Exit Hyprland |
+
+#### Focus and Movement
+
+| Keybind | Action |
+|---|---|
+| `Super + H/J/K/L` | Move focus (left/down/up/right) |
+| `Super + Shift + H/J/K/L` | Move window |
+| `Super + Ctrl + H/J/K/L` | Resize window (repeatable) |
+| `Super + Alt + H/J/K/L` | Move floating window (repeatable) |
+| Arrow key variants | Same as HJKL for all the above |
+| `Super + Mouse drag (left)` | Move window |
+| `Super + Mouse drag (right)` | Resize window |
+
+#### Workspaces
+
+| Keybind | Action |
+|---|---|
+| `Super + 1–9, 0` | Switch to workspace 1–10 |
+| `Super + Shift + 1–9, 0` | Move window to workspace 1–10 |
+| `Super + Z` | Previous workspace |
+| `Super + X` | Next active workspace |
+| `Super + Scroll` | Cycle workspaces |
+| 3-finger swipe | Swipe between workspaces |
+
+#### Applications
+
+| Keybind | Action |
+|---|---|
+| `Super + Return` | Terminal (Ghostty) |
+| `Super + Shift + Return` | Floating terminal |
+| `Super + E` | File manager (Thunar) |
+| `Super + Shift + E` | Floating file manager |
+| `Super + W` | Firefox |
+| `Super + Shift + W` | Firefox private window |
+
+#### Ambxst Shell
+
+| Keybind | Action |
+|---|---|
+| `Super + D` | Dashboard / app launcher |
+| `Super + A` | AI assistant |
+| `Super + ,` (comma) | Wallpaper selector |
+| `Super + Shift + B` | Reload shell CSS |
+| `Super + Alt + B` | Restart shell |
+| `Super + Ctrl + B` | Toggle bar visibility |
+
+#### Screenshots
+
+| Keybind | Action |
+|---|---|
+| `Print` | Area screenshot → clipboard + file |
+| `Shift + Print` | Full screen screenshot → clipboard + file |
+| `Super + Shift + S` | Area screenshot → clipboard only |
+
+Screenshots are saved to `~/Pictures/Screenshots/`.
+
+#### Media and Hardware
+
+| Keybind | Action |
+|---|---|
+| Volume keys | Raise/lower volume (5% steps) |
+| Brightness keys | Raise/lower brightness (5% steps) |
+| Mute key | Toggle mute |
+| Mic mute key | Toggle microphone mute |
+| Play/Pause/Next/Prev | Media player control |
+
+#### System
+
+| Keybind | Action |
+|---|---|
+| `Super + Ctrl + Escape` | Lock screen (hyprlock) |
+
+### Idle Behavior (OLED Protection)
+
+The idle chain is tuned for OLED burn-in prevention:
+
+| Timeout | Action |
+|---|---|
+| 3 minutes | Dim screen to 10% |
+| 5 minutes | Lock screen |
+| 8 minutes | Turn display off (DPMS) |
+| 15 minutes | Suspend |
+
+Brightness is restored automatically on resume.
+
+---
+
+## System Maintenance
+
+### Rebuild After Config Changes
 
 ```bash
-# Manual trigger
+# Build and switch (alias: rebuild)
+sudo nixos-rebuild switch --flake /etc/nixos#zenbook
+
+# Test without making it the boot default (alias: rebuild-test)
+sudo nixos-rebuild test --flake /etc/nixos#zenbook
+```
+
+### Update All Packages
+
+```bash
+# Update flake inputs and rebuild (alias: update)
+cd /etc/nixos
+sudo nix flake update
+sudo nixos-rebuild switch --flake .#zenbook
+```
+
+### Garbage Collection
+
+```bash
+# Remove old generations and unused store paths (alias: gc)
+sudo nix-collect-garbage -d
+
+# List current generations before cleaning
+sudo nix-env --list-generations --profile /nix/var/nix/profiles/system
+```
+
+Automatic garbage collection is also configured: generations older than 14 days are cleaned weekly.
+
+### Btrfs Snapshots (Snapper)
+
+```bash
+# List snapshots for root
+sudo snapper -c root list
+
+# List snapshots for home
+sudo snapper -c home list
+
+# Create a manual snapshot before a big change
+sudo snapper -c root create --description "Before kernel update"
+
+# Restore from a snapshot (advanced — boots into old snapshot)
+# See: https://wiki.archlinux.org/title/Snapper#Restoring_/_to_its_previous_snapshot
+```
+
+Snapper automatically creates and cleans timeline snapshots (hourly/daily/weekly/monthly) as configured.
+
+### Btrfs Health Check
+
+```bash
+# Filesystem usage and compression ratio
+sudo btrfs filesystem usage /
+sudo compsize /
+
+# Manual scrub (also runs weekly automatically)
 sudo btrfs scrub start /
 sudo btrfs scrub status /
 ```
 
-### Check Compression Ratio
+### Rollback to Previous Generation
+
+If a rebuild breaks something:
 
 ```bash
-sudo compsize /
-```
+# Boot menu: GRUB shows previous generations — select one to roll back
 
-### SMART Disk Health
-
-```bash
-sudo smartctl -a /dev/nvme0n1
-```
-
----
-
-## Samsung 990 Pro NVMe Notes
-
-The firmware sleep bug is mitigated by the kernel parameter:
-
-```
-nvme_core.default_ps_max_latency_us=5500
-```
-
-This is set in `configuration.nix` under `boot.kernelParams`. TRIM is handled two ways:
-
-1. **Btrfs mount option** `discard=async` — realtime background TRIM
-2. **fstrim.service** — weekly periodic TRIM (belt-and-suspenders)
-
-Samsung has released firmware updates that may fully fix the bug. Check with:
-
-```bash
-sudo smartctl -a /dev/nvme0n1 | grep "Firmware"
+# Or from the command line:
+sudo nixos-rebuild switch --rollback
 ```
 
 ---
 
 ## Troubleshooting
 
-### Wi-Fi drops on MT7922
+### No Wi-Fi After Install
 
-Uncomment the ASPM disable line in `hardware-tweaks.nix`:
+The MediaTek MT7922 requires non-free firmware. Verify that `hardware.enableAllFirmware = true` is in `hardware-tweaks.nix` and that `nixpkgs.config.allowUnfree = true` is in `configuration.nix`. Rebuild and reboot.
+
+If Wi-Fi drops intermittently, try disabling ASPM for the Wi-Fi chip. Uncomment this line in `hardware-tweaks.nix`:
 
 ```nix
 boot.kernelParams = lib.mkAfter [ "mt7921e.disable_aspm=Y" ];
 ```
 
-### Cursor invisible or flickering
+### Screen Flickering or Artifacts
 
-Already mitigated by:
-- `WLR_NO_HARDWARE_CURSORS=1` (hyprland.nix)
-- `cursor.no_hardware_cursors = true` (home.nix)
+Ensure `amdgpu` is loaded early in initrd (it should be, via `boot.initrd.kernelModules = [ "amdgpu" ]` in `configuration.nix`). If you see cursor artifacts, `cursor.no_hardware_cursors = true` is already set in the Hyprland config.
 
-### Scaling looks wrong
+### Hibernate Fails
 
-Adjust the monitor line in `home.nix`:
-
-```nix
-monitor = [ "eDP-1, 2880x1800@60, 0x0, 1.5" ];  # try 1.5 instead of 1.333
-```
-
-### Ambxst not starting
-
-Verify it's installed:
+Verify that `boot.resumeDevice` points to your swap partition and that the swap partition is at least as large as your RAM:
 
 ```bash
-which ambxst
-# If not found:
+swapon --show         # should show /dev/nvme0n1p2, 16G
+cat /proc/cmdline     # should contain resume=/dev/nvme0n1p2
+```
+
+### GTK Apps Show Light Theme
+
+Dark mode is enforced through three mechanisms. If an app still shows a light theme:
+
+1. Check the environment variable: `echo $GTK_THEME` (should be `Adwaita:dark`)
+2. Check dconf: `dconf read /org/gnome/desktop/interface/color-scheme` (should be `'prefer-dark'`)
+3. For Flatpak apps, you may need to override: `flatpak override --user --env=GTK_THEME=Adwaita:dark`
+
+### Thunar Shows No Thumbnails
+
+Verify `tumbler` is installed: `which tumblerd`. If missing, ensure `xfce.tumbler` is in `home.packages` and rebuild.
+
+### Privilege Escalation Dialogs Don't Appear
+
+This means the polkit agent is not running. Check its status:
+
+```bash
+systemctl --user status polkit-gnome-authentication-agent-1
+```
+
+If it failed to start, try restarting it manually:
+
+```bash
+systemctl --user restart polkit-gnome-authentication-agent-1
+```
+
+### NVMe Issues After Sleep
+
+The Samsung 990 Pro has a known firmware issue with deep sleep states. The kernel parameter `nvme_core.default_ps_max_latency_us=5500` (set in `configuration.nix`) limits aggressive power saving. If you still experience issues, update the drive firmware via Samsung Magician (Windows) or `fwupd`:
+
+```bash
+fwupdmgr refresh
+fwupdmgr get-updates
+fwupdmgr update
+```
+
+### "Ambxst not found" After First Boot
+
+Ambxst is installed to the user profile, not the system. Ensure you ran:
+
+```bash
 nix profile add github:Axenide/Ambxst
 ```
 
-Check logs:
+Then restart Hyprland or run `ambxst` from a terminal.
+
+### greetd Shows a Blank Screen or Crashes
+
+If greetd fails to start properly, switch to another TTY (`Ctrl + Alt + F2`) and check its logs:
 
 ```bash
-journalctl --user -u ambxst -b
+journalctl -u greetd --no-pager -n 50
 ```
 
-### Build fails after flake update
-
-```bash
-# Roll back the flake.lock
-cd /etc/nixos
-git diff flake.lock   # if using git
-sudo nixos-rebuild switch --rollback
-
-# Or pin a specific nixpkgs commit in flake.nix:
-# nixpkgs.url = "github:NixOS/nixpkgs/<commit-hash>";
-```
-
-### External monitor
-
-Add a second monitor line in `home.nix`:
+If the GPU is not ready when greetd launches (rare on AMD), you can add a delay:
 
 ```nix
-monitor = [
-  "eDP-1, 2880x1800@60, 0x0, 1.333333"
-  "HDMI-A-1, preferred, auto-right, 1"   # auto-detect external
-];
+# In configuration.nix, add to systemd.services.greetd:
+systemd.services.greetd.serviceConfig.ExecStartPre = "${pkgs.coreutils}/bin/sleep 1";
+```
+
+### Login Loop (greetd Keeps Restarting)
+
+If Hyprland crashes on launch and greetd keeps respawning the greeter, switch to TTY2 (`Ctrl + Alt + F2`), log in, and check the Hyprland log:
+
+```bash
+cat /tmp/hypr/$(ls -t /tmp/hypr/ | head -1)/hyprland.log
 ```
 
 ---
 
-## Configuration Design Choices
+## File Reference
 
-### Why Home Manager as NixOS Module (not standalone)?
+### flake.nix
 
-- Single `sudo nixos-rebuild switch` deploys both system and user config
-- No separate `home-manager switch` step
-- `useGlobalPkgs = true` avoids evaluating nixpkgs twice (faster builds, less RAM)
-- `useUserPackages = true` installs to per-user profile (clean separation)
+The flake entry point. Pins `nixpkgs` to the unstable channel and integrates Home Manager as a NixOS module. The single output, `nixosConfigurations.zenbook`, ties all modules together.
 
-### Why Axenide-style keybindings?
+### configuration.nix
 
-- `SUPER+C` close avoids conflict with `SUPER+Q` (used by some apps)
-- HJKL navigation keeps hands on home row
-- `SUPER+Space` for float toggle is ergonomic and widely familiar
-- Modifier layers (SHIFT=move, CTRL=resize, ALT=float-move) are consistent
+System-level configuration covering boot (GRUB with EFI, latest kernel, hibernate support), display manager (greetd with tuigreet), networking (NetworkManager with firewall), locale and time, PipeWire audio, Bluetooth, zram swap, Btrfs auto-scrub, Snapper snapshots, fonts (Noto, Inter, Nerd Fonts), and essential services (dbus, polkit, fwupd, upower, udisks2, gvfs, fstrim).
 
-### Why neutral border colors?
+### hardware-configuration.nix (Not in Repo)
 
-Ambxst dynamically themes the entire desktop including wallpaper-adaptive colors. Hardcoded border colors would clash. The white/grey defaults are overridden by Ambxst at runtime.
+Auto-generated by `nixos-generate-config`. Contains detected kernel modules, filesystem mount entries with UUIDs, and hardware-specific settings. Must be regenerated for each new installation.
 
-### Why `hyprmon` was removed
+### hardware-tweaks.nix
 
-`hyprmon` is not a standard nixpkgs package. For multi-monitor management, use `hyprctl monitors` and add monitor lines to `home.nix`, or use `nwg-displays` (available in nixpkgs).
+Zenbook-specific hardware tuning: AMD GPU with AMDVLK Vulkan driver, CPU microcode updates, firmware blobs, Samsung 990 Pro NVMe workarounds, IIO sensors for the accelerometer and ambient light sensor, TLP power management with dynamic governor switching, logind lid/suspend behavior, and power-profiles-daemon conflict prevention.
+
+### hyprland.nix
+
+System-level Hyprland setup: enables Hyprland and XWayland, configures XDG desktop portals (hyprland + GTK), enables dconf for theme propagation, and sets Wayland session variables (Ozone, Mozilla, Qt, SDL, Clutter).
+
+### home.nix
+
+User configuration managed by Home Manager. Contains all user packages (CLI tools, media, Wayland utilities, Hyprland ecosystem, development tools, theming), the complete Hyprland window manager configuration (monitor scaling, input, gestures, decorations, animations, layouts, window rules, keybindings), hypridle service (OLED-optimized idle chain), cursor and GTK/Qt/dconf theming, XDG directories, Ghostty terminal configuration, Git settings, Bash aliases, Firefox with hardware acceleration, polkit-gnome systemd service, fzf, and direnv.
+
+---
+
+## License
+
+This configuration is provided as-is for personal use. Adapt freely.

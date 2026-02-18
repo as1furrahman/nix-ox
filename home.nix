@@ -21,12 +21,12 @@
     bat
     tree
     jq
-    fzf
     unzip
     zip
     file
     htop
     btop
+    fish
 
     # Media
     ffmpeg
@@ -55,7 +55,6 @@
     # Hyprland ecosystem
     hyprpaper
     hyprlock
-    hypridle
 
     # Audio
     pavucontrol
@@ -63,6 +62,9 @@
 
     # File manager
     xfce.thunar
+    xfce.thunar-volman              # auto-mount removable drives
+    xfce.thunar-archive-plugin      # right-click extract/compress
+    xfce.tumbler                    # thumbnail previews (images, videos, PDFs)
 
     # Networking GUI
     networkmanagerapplet
@@ -71,6 +73,7 @@
     nwg-look
     bibata-cursors
     adwaita-icon-theme
+    adwaita-icon-theme-legacy        # FDO-compliant icons for non-GNOME apps (Thunar, etc.)
 
     # Development
     gcc
@@ -151,7 +154,7 @@
   # ──────────────────────────────────────────────
 
   home.pointerCursor = {
-    name = "Bibata-Modern-Classic";
+    name = "Bibata-Modern-Ice";
     package = pkgs.bibata-cursors;
     size = 24;
     gtk.enable = true;
@@ -168,11 +171,17 @@
       package = pkgs.adwaita-icon-theme;
     };
     cursorTheme = {
-      name = "Bibata-Modern-Classic";
+      name = "Bibata-Modern-Ice";
       size = 24;
     };
     gtk3.extraConfig.gtk-application-prefer-dark-theme = true;
     gtk4.extraConfig.gtk-application-prefer-dark-theme = true;
+  };
+
+  # libadwaita (GTK4) apps read dark mode from dconf, not GTK settings files
+  dconf.settings."org/gnome/desktop/interface" = {
+    color-scheme = "prefer-dark";
+    gtk-theme = "Adwaita-dark";
   };
 
   qt = {
@@ -213,6 +222,12 @@
     enable = true;
     systemd.enable = true;
 
+    # Use the Hyprland package from the NixOS module (programs.hyprland)
+    # to avoid version mismatch between system and user installs.
+    # See: https://wiki.hypr.land/Nix/Hyprland-on-Home-Manager/
+    package = null;
+    portalPackage = null;
+
     settings = {
 
       # ────────────────────────────────────────
@@ -227,7 +242,7 @@
       # ────────────────────────────────────────
       env = [
         "XCURSOR_SIZE,24"
-        "XCURSOR_THEME,Bibata-Modern-Classic"
+        "XCURSOR_THEME,Bibata-Modern-Ice"
       ];
 
 
@@ -238,7 +253,6 @@
       # clipboard, power menu, media controls, Wi-Fi/BT, and more.
       exec-once = [
         "ambxst"
-        "hypridle"
         "wl-paste --type text  --watch cliphist store"
         "wl-paste --type image --watch cliphist store"
         "wl-clip-persist --clipboard regular"
@@ -279,13 +293,14 @@
       # General
       # ────────────────────────────────────────
       general = {
-        gaps_in = 4;
-        gaps_out = 8;
-        border_size = 2;
+        gaps_in = 6;
+        gaps_out = 14;
+        border_size = 3;
 
-        # Neutral defaults — Ambxst handles theming
-        "col.active_border" = "rgba(ffffffcc)";
-        "col.inactive_border" = "rgba(59595966)";
+        # Warm neutral baseline — Ambxst overrides via IPC on launch.
+        # Two-color gradient rotates via borderangle animation (see animations block).
+        "col.active_border" = "rgba(d4a556ee) rgba(c78a6ecc) 45deg";
+        "col.inactive_border" = "rgba(2a2a2a40)";
 
         layout = "dwindle";          # default; switchable to master via keybind
         allow_tearing = false;
@@ -296,30 +311,33 @@
       # Decoration — all effects enabled
       # ────────────────────────────────────────
       decoration = {
-        rounding = 12;
+        rounding = 14;
 
-        # Blur
+        # Blur — frosted glass for Ambxst popups and transparent windows
         blur = {
           enabled = true;
           size = 8;
-          passes = 3;
+          passes = 4;
           new_optimizations = true;
           xray = false;
-          noise = "0.02";
+          noise = "0.015";
           contrast = "0.9";
-          brightness = "0.8";
-          vibrancy = "0.17";
-          vibrancy_darkness = "0.0";
+          brightness = "0.75";
+          vibrancy = "0.2";
+          vibrancy_darkness = "0.1";
           popups = true;
+          popups_ignorealpha = "0.5";
         };
 
-        # Shadows
+        # Shadows — wide & soft for OLED depth (true-black swallows hard shadows)
         shadow = {
           enabled = true;
-          range = 16;
-          render_power = 3;
-          color = "rgba(0a0a0aee)";
-          color_inactive = "rgba(0a0a0a88)";
+          range = 22;
+          render_power = 2;
+          color = "rgba(00000088)";
+          color_inactive = "rgba(00000044)";
+          offset = "0 4";
+          scale = "0.98";
         };
 
         # Dim inactive windows
@@ -329,48 +347,52 @@
 
 
       # ────────────────────────────────────────
-      # Animations — Bouncy & expressive
-      # Axenide-style overshoots & spring curves
+      # Animations — Polished & responsive
+      # Snappy workspace switches, fluid window transitions,
+      # smooth fades. Designed to complement Ambxst's own animations.
       # ────────────────────────────────────────
       animations = {
         enabled = true;
 
         bezier = [
-          # Overshoot / spring curves
-          "overshoot, 0.05, 0.9, 0.1, 1.05"
-          "spring, 0.1, 0.8, 0.2, 1.1"
-          "bounce, 0.05, 0.85, 0.1, 1.08"
+          # Snappy — quick attack, firm landing (workspaces, layout switches)
+          "snappy, 0.25, 1.0, 0.5, 1.0"
 
-          # Smooth ease for fades / subtle transitions
-          "smooth, 0.25, 0.1, 0.25, 1.0"
-          "smoothOut, 0.36, 0, 0.66, -0.56"
+          # Fluid — gentle overshoot for organic feel (window open/move)
+          "fluid, 0.05, 0.9, 0.1, 1.05"
 
-          # Snappy for workspaces
-          "snappy, 0.4, 0.0, 0.2, 1.0"
+          # Soft spring — subtle bounce (window in, special workspace)
+          "spring, 0.1, 0.8, 0.2, 1.08"
+
+          # Clean ease-out — no overshoot (fades, borders, dim)
+          "ease, 0.25, 0.1, 0.25, 1.0"
+
+          # Exit — quick pull-back (window close, fade out)
+          "exit, 0.36, 0, 0.66, -0.56"
         ];
 
         animation = [
-          # Windows — bouncy open/close
-          "windows, 1, 5, overshoot, slide"
-          "windowsIn, 1, 5, spring, slide"
-          "windowsOut, 1, 4, smoothOut, popin 80%"
-          "windowsMove, 1, 4, spring"
+          # Windows — fluid open, spring-in, quick exit
+          "windows, 1, 4, fluid, slide"
+          "windowsIn, 1, 4, spring, slide"
+          "windowsOut, 1, 3, exit, popin 80%"
+          "windowsMove, 1, 3, snappy"
 
-          # Fades
-          "fade, 1, 4, smooth"
-          "fadeIn, 1, 4, smooth"
-          "fadeOut, 1, 3, smooth"
-          "fadeSwitch, 1, 5, smooth"
-          "fadeShadow, 1, 5, smooth"
-          "fadeDim, 1, 4, smooth"
+          # Fades — clean and quick
+          "fade, 1, 3, ease"
+          "fadeIn, 1, 3, ease"
+          "fadeOut, 1, 2, ease"
+          "fadeSwitch, 1, 3, ease"
+          "fadeShadow, 1, 4, ease"
+          "fadeDim, 1, 3, ease"
 
-          # Borders — smooth rotating gradient
-          "border, 1, 10, smooth"
-          "borderangle, 1, 50, smooth, loop"
+          # Borders — smooth gradient rotation
+          "border, 1, 8, ease"
+          "borderangle, 1, 40, ease, loop"
 
-          # Workspaces — snappy slide
-          "workspaces, 1, 5, snappy, slide"
-          "specialWorkspace, 1, 5, bounce, slidevert"
+          # Workspaces — snappy, responsive slide
+          "workspaces, 1, 4, snappy, slide"
+          "specialWorkspace, 1, 4, spring, slidevert"
         ];
       };
 
@@ -483,11 +505,26 @@
       ];
 
       # Layer rules for Ambxst (Quickshell-based)
+      # v1.0+ namespace: ambxst (bar, popups, notifications, OSD)
       layerrule = [
+        # ── Ambxst shell components (v1.0+ namespace) ──
+        "blur, ambxst"
+        "blur, ambxst:*"
+        "ignorealpha 0.4, ambxst"
+        "ignorealpha 0.4, ambxst:*"
+        "animation slide, ambxst:*"
+
+        # ── Legacy / fallback namespace ──
         "blur, shell:*"
-        "ignorealpha 0.6, shell:*"
+        "ignorealpha 0.4, shell:*"
+
+        # ── GTK layer shell (file pickers, polkit dialogs) ──
         "blur, gtk-layer-shell"
         "ignorezero, gtk-layer-shell"
+
+        # ── Hyprland lock screen ──
+        "blur, hyprlock"
+        "ignorealpha 0.4, hyprlock"
       ];
 
 
@@ -590,12 +627,12 @@
         "$mod CTRL, B, exec, ambxst toggle-bar"        # toggle bar visibility
 
         # ── Screenshots (manual fallback — Ambxst handles these too) ──
-        ", Print, exec, grim -g \"$(slurp)\" - | tee ~/Pictures/Screenshots/$(date +%Y%m%d_%H%M%S).png | wl-copy"
-        "SHIFT, Print, exec, grim - | tee ~/Pictures/Screenshots/$(date +%Y%m%d_%H%M%S).png | wl-copy"
+        ", Print, exec, mkdir -p ~/Pictures/Screenshots && grim -g \"$(slurp)\" - | tee ~/Pictures/Screenshots/$(date +%Y%m%d_%H%M%S).png | wl-copy"
+        "SHIFT, Print, exec, mkdir -p ~/Pictures/Screenshots && grim - | tee ~/Pictures/Screenshots/$(date +%Y%m%d_%H%M%S).png | wl-copy"
         "$mod SHIFT, S, exec, grim -g \"$(slurp)\" - | wl-copy"
 
         # ── Lock ──
-        "$mod CTRL, L, exec, hyprlock"
+        "$mod CTRL, Escape, exec, hyprlock"
       ];
 
       # ── Resize — CTRL + HJKL / Arrows (repeatable) ──
@@ -696,6 +733,29 @@
         "browser.search.suggest.enabled" = false;
         "browser.urlbar.suggest.searches" = false;
       };
+    };
+  };
+
+
+  # ──────────────────────────────────────────────
+  # Polkit Agent — systemd autostart
+  # ──────────────────────────────────────────────
+  # Ambxst has a built-in polkit agent, but polkit-gnome
+  # ensures coverage before Ambxst loads or if it crashes.
+
+  systemd.user.services.polkit-gnome-authentication-agent-1 = {
+    Unit = {
+      Description = "polkit-gnome-authentication-agent-1";
+      Wants = [ "graphical-session.target" ];
+      After = [ "graphical-session.target" ];
+    };
+    Install.WantedBy = [ "graphical-session.target" ];
+    Service = {
+      Type = "simple";
+      ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
+      Restart = "on-failure";
+      RestartSec = 1;
+      TimeoutStopSec = 10;
     };
   };
 

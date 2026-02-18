@@ -26,6 +26,7 @@
         {
           home-manager.useGlobalPkgs = true;       # use system's nixpkgs instance
           home-manager.useUserPackages = true;      # install to /etc/profiles/per-user
+          home-manager.backupFileExtension = "backup"; # avoid activation crash on conflict
           home-manager.extraSpecialArgs = { inherit inputs; };
           home-manager.users.asif = import ./home.nix;
         }

@@ -16,14 +16,20 @@
   };
 
 
+  # ──── dconf ────
+  # Required for GTK apps to read theme settings without a full DE.
+  # The Hyprland NixOS module may enable this, but explicit is safer.
+
+  programs.dconf.enable = true;
+
+
   # ──── XDG Portals ────
+  # xdg-desktop-portal-hyprland is already added by programs.hyprland.enable
+  # We only need to add the GTK portal (for file pickers, etc.)
 
   xdg.portal = {
     enable = true;
-    extraPortals = with pkgs; [
-      xdg-desktop-portal-hyprland
-      xdg-desktop-portal-gtk
-    ];
+    extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
     config.common.default = "*";
   };
 
@@ -42,7 +48,6 @@
     XDG_SESSION_TYPE = "wayland";
     XDG_CURRENT_DESKTOP = "Hyprland";
     XDG_SESSION_DESKTOP = "Hyprland";
-    WLR_NO_HARDWARE_CURSORS = "1";
     GTK_THEME = "Adwaita:dark";
   };
 

@@ -26,11 +26,9 @@
   hardware.cpu.amd.updateMicrocode = true;
 
   # amd_pstate=active is set in boot.kernelParams in configuration.nix
-  # powersave governor is dynamic under EPP — it scales up/down as needed
-  powerManagement = {
-    enable = true;
-    cpuFreqGovernor = "powersave";
-  };
+  # TLP manages the governor dynamically (performance on AC, powersave on BAT),
+  # so we intentionally do NOT set cpuFreqGovernor here to avoid conflicts.
+  powerManagement.enable = true;
 
 
   # ──── Firmware ────
@@ -123,6 +121,7 @@
 
   # ──── Backlight ────
 
-  programs.light.enable = true;
-  # brightnessctl is in systemPackages as well
+  # brightnessctl is used in keybinds (home.nix) and hypridle.
+  # It works via systemd-logind API — no NixOS option needed.
+  # Just having the package installed (in home.packages) is sufficient.
 }
