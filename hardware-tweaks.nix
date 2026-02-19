@@ -11,9 +11,6 @@
   hardware.graphics = {
     enable = true;
     enable32Bit = true;                  # needed for Steam / Wine / 32-bit GL
-    extraPackages = with pkgs; [
-      amdvlk                             # AMD's open-source Vulkan driver
-    ];
   };
 
   # Set GPU driver at system level
@@ -108,14 +105,12 @@
 
   # ──── Lid / Suspend ────
 
-  services.logind = {
-    lidSwitch = "suspend";
-    lidSwitchExternalPower = "suspend";
-    extraConfig = ''
-      HandlePowerKey=suspend
-      IdleAction=suspend
-      IdleActionSec=600
-    '';
+  services.logind.settings.Login = {
+    HandleLidSwitch = "suspend";
+    HandleLidSwitchExternalPower = "suspend";
+    HandlePowerKey = "suspend";
+    IdleAction = "suspend";
+    IdleActionSec = 600;
   };
 
 

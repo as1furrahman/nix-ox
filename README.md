@@ -23,7 +23,7 @@ Declarative, reproducible NixOS configuration for the Asus Zenbook S 13 OLED, bu
 ```
 flake.nix                  # Entry point — nixpkgs-unstable + Home Manager inputs
 ├── configuration.nix      # System: boot, networking, audio, bluetooth, fonts, services
-├── hardware-configuration.nix  # Auto-generated — NOT in this repo
+├── hardware-configuration.nix  # Auto-generated — machine-specific, must be git-tracked for flakes
 ├── hardware-tweaks.nix    # Zenbook-specific: AMD GPU/CPU, TLP, NVMe, sensors
 ├── hyprland.nix           # System-level Hyprland: portals, dconf, session variables
 └── home.nix               # User: packages, Hyprland settings, theming, keybinds, services
@@ -235,36 +235,45 @@ nixos-generate-config --root /mnt
 
 This creates two files in `/mnt/etc/nixos/`:
 
-- `hardware-configuration.nix` — Machine-specific: filesystem mounts, kernel modules, detected hardware. **Keep this file.** It is unique to your hardware and is not included in this repository.
+- `hardware-configuration.nix` — Machine-specific: filesystem mounts, kernel modules, detected hardware. **Keep this file and make sure it is git-tracked** — Nix flakes only evaluate files known to git.
 - `configuration.nix` — A default starter config. **This will be replaced** by the files from this repository.
 
 ### Step 8 — Clone This Repository
 
-```bash
-# Remove the default configuration.nix (we'll replace it)
-rm /mnt/etc/nixos/configuration.nix
+With flakes, NixOS configurations can live anywhere — they don't need to be in `/etc/nixos`. This setup uses `~/nixos-config` as the primary location, keeping your config in your home directory where it's version-controlled and easy to manage.
 
+```bash
 # Install git in the live environment
 nix-env -iA nixos.git
 
-# Clone directly into /etc/nixos
-cd /mnt/etc/nixos
-git init
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
-git pull origin main
+# Clone into the user's home directory
+git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git /mnt/home/asif/nixos-config
+
+# Copy the auto-generated hardware config into the repo
+cp /mnt/etc/nixos/hardware-configuration.nix /mnt/home/asif/nixos-config/
+
+# IMPORTANT: Stage the new file — Nix flakes only evaluate git-tracked files
+cd /mnt/home/asif/nixos-config
+git add hardware-configuration.nix
 ```
 
 Alternatively, if you have the files on a USB drive or downloaded manually:
 
 ```bash
-# Copy all .nix files except hardware-configuration.nix into /mnt/etc/nixos/
-cp flake.nix configuration.nix hardware-tweaks.nix hyprland.nix home.nix /mnt/etc/nixos/
+mkdir -p /mnt/home/asif/nixos-config
+cp flake.nix configuration.nix hardware-tweaks.nix hyprland.nix home.nix /mnt/home/asif/nixos-config/
+cp /mnt/etc/nixos/hardware-configuration.nix /mnt/home/asif/nixos-config/
+
+# Initialize git and stage all files — flakes require this
+cd /mnt/home/asif/nixos-config
+git init
+git add .
 ```
 
 **Verify the directory structure:**
 
 ```bash
-ls -la /mnt/etc/nixos/
+ls -la /mnt/home/asif/nixos-config/
 ```
 
 You should see:
@@ -296,10 +305,8 @@ Before building, review and adjust the following:
 ### Step 10 — Install
 
 ```bash
-cd /mnt/etc/nixos
-
 # Install the system (the flake name matches nixosConfigurations.zenbook)
-nixos-install --flake .#zenbook
+nixos-install --flake /mnt/home/asif/nixos-config#zenbook
 ```
 
 This will:
@@ -390,35 +397,21 @@ sudo snapper -c home list
 
 ## Post-Install Configuration
 
-### Move Config to Your Home Directory (Optional)
+### Symlink /etc/nixos (Optional)
 
-If you prefer to manage your NixOS configuration from your home directory (e.g., as a Git working tree) rather than `/etc/nixos`:
+The configuration lives in `~/nixos-config`. If you want `nixos-rebuild` to also work without the `--flake` flag, or if any tool expects a config in `/etc/nixos`, create a symlink:
 
 ```bash
-# Copy to home
-cp -r /etc/nixos ~/nixos-config
-cd ~/nixos-config
-git init
-git add .
-git commit -m "Initial NixOS configuration"
-
-# Rebuild using the new location
-sudo nixos-rebuild switch --flake ~/nixos-config#zenbook
+sudo rm -rf /etc/nixos
+sudo ln -s /home/asif/nixos-config /etc/nixos
 ```
 
-Update the `rebuild` alias in `home.nix` if you change the config location:
-
-```nix
-rebuild = "sudo nixos-rebuild switch --flake ~/nixos-config#zenbook";
-```
+This is purely optional — the `rebuild` and `update` aliases already point to `~/nixos-config`.
 
 ### Push to GitHub
 
 ```bash
-cd ~/nixos-config  # or /etc/nixos
-
-# Create .gitignore to exclude machine-specific file
-echo "hardware-configuration.nix" > .gitignore
+cd ~/nixos-config
 
 git add .
 git commit -m "NixOS Zenbook S 13 OLED configuration"
@@ -426,7 +419,7 @@ git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO.git
 git push -u origin main
 ```
 
-> **Note:** `hardware-configuration.nix` is excluded from the repository because it is machine-specific (contains UUIDs, detected kernel modules, and filesystem entries unique to your hardware). It should be regenerated with `nixos-generate-config` on each new installation.
+> **Note:** `hardware-configuration.nix` is machine-specific (contains UUIDs, kernel modules, and filesystem entries unique to your hardware). It **must** be tracked by git because Nix flakes only evaluate git-tracked files. If you reinstall on different hardware, regenerate it with `nixos-generate-config` and commit the updated version.
 
 ### Hyprpaper (Wallpaper)
 
@@ -483,9 +476,9 @@ EOF
 |---|---|
 | `Super + C` | Close window |
 | `Super + Space` | Toggle floating |
-| `Super + F` | Fullscreen |
-| `Super + Shift + F` | Fake fullscreen |
-| `Super + Ctrl + F` | Maximize |
+| `Super + F` | Fullscreen (covers bar) |
+| `Super + Shift + F` | Maximize (keeps bar/gaps) |
+| `Super + Ctrl + F` | Internal fullscreen |
 | `Super + P` | Pseudo-tile |
 | `Super + Shift + D` | Toggle dwindle split |
 | `Super + Y` | Pin floating window |
@@ -515,7 +508,7 @@ EOF
 | `Super + Z` | Previous workspace |
 | `Super + X` | Next active workspace |
 | `Super + Scroll` | Cycle workspaces |
-| 3-finger swipe | Swipe between workspaces |
+| 3-finger horizontal swipe | Swipe between workspaces (gesture system, Hyprland ≥0.51) |
 
 #### Applications
 
@@ -586,17 +579,17 @@ Brightness is restored automatically on resume.
 
 ```bash
 # Build and switch (alias: rebuild)
-sudo nixos-rebuild switch --flake /etc/nixos#zenbook
+sudo nixos-rebuild switch --flake ~/nixos-config#zenbook
 
 # Test without making it the boot default (alias: rebuild-test)
-sudo nixos-rebuild test --flake /etc/nixos#zenbook
+sudo nixos-rebuild test --flake ~/nixos-config#zenbook
 ```
 
 ### Update All Packages
 
 ```bash
 # Update flake inputs and rebuild (alias: update)
-cd /etc/nixos
+cd ~/nixos-config
 sudo nix flake update
 sudo nixos-rebuild switch --flake .#zenbook
 ```
@@ -691,7 +684,7 @@ Dark mode is enforced through three mechanisms. If an app still shows a light th
 
 ### Thunar Shows No Thumbnails
 
-Verify `tumbler` is installed: `which tumblerd`. If missing, ensure `xfce.tumbler` is in `home.packages` and rebuild.
+Verify `tumbler` is installed: `which tumblerd`. If missing, ensure `tumbler` is in `home.packages` and rebuild.
 
 ### Privilege Escalation Dialogs Don't Appear
 
@@ -762,13 +755,13 @@ The flake entry point. Pins `nixpkgs` to the unstable channel and integrates Hom
 
 System-level configuration covering boot (GRUB with EFI, latest kernel, hibernate support), display manager (greetd with tuigreet), networking (NetworkManager with firewall), locale and time, PipeWire audio, Bluetooth, zram swap, Btrfs auto-scrub, Snapper snapshots, fonts (Noto, Inter, Nerd Fonts), and essential services (dbus, polkit, fwupd, upower, udisks2, gvfs, fstrim).
 
-### hardware-configuration.nix (Not in Repo)
+### hardware-configuration.nix
 
-Auto-generated by `nixos-generate-config`. Contains detected kernel modules, filesystem mount entries with UUIDs, and hardware-specific settings. Must be regenerated for each new installation.
+Auto-generated by `nixos-generate-config`. Contains detected kernel modules, filesystem mount entries with UUIDs, and hardware-specific settings. This file **must** be git-tracked because Nix flakes only evaluate tracked files. Regenerate with `nixos-generate-config` when reinstalling on different hardware.
 
 ### hardware-tweaks.nix
 
-Zenbook-specific hardware tuning: AMD GPU with AMDVLK Vulkan driver, CPU microcode updates, firmware blobs, Samsung 990 Pro NVMe workarounds, IIO sensors for the accelerometer and ambient light sensor, TLP power management with dynamic governor switching, logind lid/suspend behavior, and power-profiles-daemon conflict prevention.
+Zenbook-specific hardware tuning: AMD GPU with RADV Vulkan driver (enabled by default), CPU microcode updates, firmware blobs, Samsung 990 Pro NVMe workarounds, IIO sensors for the accelerometer and ambient light sensor, TLP power management with dynamic governor switching, logind lid/suspend behavior, and power-profiles-daemon conflict prevention.
 
 ### hyprland.nix
 

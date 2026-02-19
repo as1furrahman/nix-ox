@@ -7,6 +7,15 @@
     stateVersion = "24.11";
   };
 
+  # Allow unfree packages in user-level nix commands (nix shell, nix profile, etc.)
+  # System-level allowUnfree is in configuration.nix — this covers the user side.
+  nixpkgs.config.allowUnfree = true;
+
+  # Env var for ad-hoc nix CLI commands (nix shell, nix run, nix profile add)
+  home.sessionVariables = {
+    NIXPKGS_ALLOW_UNFREE = "1";
+  };
+
   programs.home-manager.enable = true;
 
   # ──────────────────────────────────────────────
@@ -61,10 +70,10 @@
     easyeffects
 
     # File manager
-    xfce.thunar
-    xfce.thunar-volman              # auto-mount removable drives
-    xfce.thunar-archive-plugin      # right-click extract/compress
-    xfce.tumbler                    # thumbnail previews (images, videos, PDFs)
+    thunar
+    thunar-volman                    # auto-mount removable drives
+    thunar-archive-plugin            # right-click extract/compress
+    tumbler                          # thumbnail previews (images, videos, PDFs)
 
     # Networking GUI
     networkmanagerapplet
@@ -94,9 +103,9 @@
 
   programs.git = {
     enable = true;
-    userName = "Asif";            # adjust
-    userEmail = "asif@email.com"; # adjust
-    extraConfig = {
+    settings = {
+      user.name = "Asif";            # adjust
+      user.email = "asif@email.com"; # adjust
       init.defaultBranch = "main";
       pull.rebase = true;
       core.editor = "vim";
@@ -119,9 +128,9 @@
       find = "fd";
       ".." = "cd ..";
       "..." = "cd ../..";
-      rebuild = "sudo nixos-rebuild switch --flake /etc/nixos#zenbook";
-      rebuild-test = "sudo nixos-rebuild test --flake /etc/nixos#zenbook";
-      update = "cd /etc/nixos && sudo nix flake update && sudo nixos-rebuild switch --flake .#zenbook";
+      rebuild = "sudo nixos-rebuild switch --flake ~/nixos-config#zenbook";
+      rebuild-test = "sudo nixos-rebuild test --flake ~/nixos-config#zenbook";
+      update = "cd ~/nixos-config && sudo nix flake update && sudo nixos-rebuild switch --flake .#zenbook";
       gc = "sudo nix-collect-garbage -d";
     };
   };
@@ -278,8 +287,12 @@
       };
 
       gestures = {
-        workspace_swipe = true;
-        workspace_swipe_fingers = 3;
+        # ── New gesture system (Hyprland ≥0.51) ──
+        # Replaces the removed workspace_swipe / workspace_swipe_fingers options.
+        gesture = [
+          "3, horizontal, workspace"   # 3-finger horizontal swipe → switch workspace
+        ];
+
         workspace_swipe_distance = 300;
         workspace_swipe_cancel_ratio = "0.2";
         workspace_swipe_min_speed_to_force = 5;
@@ -548,9 +561,9 @@
         "$mod, Space, togglefloating"                  # toggle float
         "$mod, P, pseudo"                              # pseudo-tile
         "$mod SHIFT, D, togglesplit"                   # toggle dwindle split
-        "$mod, F, fullscreen, 0"                       # fullscreen
-        "$mod SHIFT, F, fullscreen, 1"                 # fake fullscreen
-        "$mod CTRL, F, fullscreen, 2"                  # maximize
+        "$mod, F, fullscreen, 0"                       # fullscreen (covers bar)
+        "$mod SHIFT, F, fullscreen, 1"                 # maximize (keeps bar/gaps)
+        "$mod CTRL, F, fullscreen, 2"                  # internal fullscreen
         "$mod, Y, pin"                                 # pin floating window
         "$mod, G, centerwindow"                        # center floating window
 
