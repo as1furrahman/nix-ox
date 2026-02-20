@@ -45,7 +45,7 @@ flake.nix                  # Entry point — nixpkgs-unstable + Home Manager inp
 
 **Visual foundation (Ambxst-synchronized)** — The Hyprland config provides the visual canvas that Ambxst paints on. Ambxst overrides border colors and some settings via IPC at launch, so the Nix config defines the pre-Ambxst baseline and the properties Ambxst doesn't touch:
 
-- *Blur*: 4-pass, size-8 frosted glass with `popups_ignorealpha` for clean Ambxst popup rendering
+- *Blur*: 4-pass, size-8 frosted glass with layer rules using `ignore_alpha` for clean Ambxst popup rendering
 - *Gaps*: Inner 6, outer 14 — enough breathing room for Ambxst's floating bar and notification popups
 - *Rounding*: 14px — matches Ambxst's own rounded UI elements
 - *Borders*: 3px warm gradient (gold → peach, 45°) with `borderangle` loop animation. Ambxst overrides these with its wallpaper-derived palette

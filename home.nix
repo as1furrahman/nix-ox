@@ -7,11 +7,8 @@
     stateVersion = "24.11";
   };
 
-  # Allow unfree packages in user-level nix commands (nix shell, nix profile, etc.)
-  # System-level allowUnfree is in configuration.nix — this covers the user side.
-  nixpkgs.config.allowUnfree = true;
-
-  # Env var for ad-hoc nix CLI commands (nix shell, nix run, nix profile add)
+  # Allow unfree in ad-hoc nix CLI commands (nix shell, nix run, nix profile add)
+  # System-level allowUnfree is in configuration.nix and inherited via useGlobalPkgs.
   home.sessionVariables = {
     NIXPKGS_ALLOW_UNFREE = "1";
   };
@@ -32,6 +29,8 @@
     jq
     unzip
     zip
+    unrar
+    p7zip                            # 7z archive support
     file
     htop
     btop
@@ -73,7 +72,11 @@
     thunar
     thunar-volman                    # auto-mount removable drives
     thunar-archive-plugin            # right-click extract/compress
+    xarchiver                        # GUI archive manager (backend for thunar-archive-plugin)
     tumbler                          # thumbnail previews (images, videos, PDFs)
+
+    # Text editor
+    geany
 
     # Networking GUI
     networkmanagerapplet
@@ -142,7 +145,7 @@
   xdg.configFile."ghostty/config".text = ''
     font-family = JetBrainsMono Nerd Font
     font-size = 12
-    theme = dark:catppuccin-mocha,light:catppuccin-latte
+    theme = dark:Catppuccin Mocha,light:Catppuccin Latte
 
     window-decoration = false
     window-padding-x = 8
@@ -331,7 +334,6 @@
           enabled = true;
           size = 8;
           passes = 4;
-          new_optimizations = true;
           xray = false;
           noise = "0.015";
           contrast = "0.9";
@@ -339,7 +341,6 @@
           vibrancy = "0.2";
           vibrancy_darkness = "0.1";
           popups = true;
-          popups_ignorealpha = "0.5";
         };
 
         # Shadows — wide & soft for OLED depth (true-black swallows hard shadows)
@@ -419,7 +420,6 @@
         force_split = 2;
         smart_split = false;
         smart_resizing = true;
-        no_gaps_when_only = 0;       # keep gaps even with one window
       };
 
       master = {
@@ -427,7 +427,6 @@
         mfact = "0.55";
         orientation = "left";
         smart_resizing = true;
-        no_gaps_when_only = 0;
       };
 
 
@@ -492,7 +491,7 @@
         "opaque, title:^(.*YouTube.*)$"
 
         # No blur on fullscreen (performance)
-        "noblur, fullscreen:1"
+        "no_blur on, fullscreen:1"
 
         # Pin PiP
         "pin, title:^(Picture-in-Picture)$"
@@ -521,23 +520,23 @@
       # v1.0+ namespace: ambxst (bar, popups, notifications, OSD)
       layerrule = [
         # ── Ambxst shell components (v1.0+ namespace) ──
-        "blur, ambxst"
-        "blur, ambxst:*"
-        "ignorealpha 0.4, ambxst"
-        "ignorealpha 0.4, ambxst:*"
-        "animation slide, ambxst:*"
+        "blur on, match:namespace ambxst"
+        "blur on, match:namespace ambxst:.*"
+        "ignore_alpha 0.4, match:namespace ambxst"
+        "ignore_alpha 0.4, match:namespace ambxst:.*"
+        "animation slide, match:namespace ambxst:.*"
 
         # ── Legacy / fallback namespace ──
-        "blur, shell:*"
-        "ignorealpha 0.4, shell:*"
+        "blur on, match:namespace shell:.*"
+        "ignore_alpha 0.4, match:namespace shell:.*"
 
         # ── GTK layer shell (file pickers, polkit dialogs) ──
-        "blur, gtk-layer-shell"
-        "ignorezero, gtk-layer-shell"
+        "blur on, match:namespace gtk-layer-shell"
+        "ignore_alpha 0, match:namespace gtk-layer-shell"
 
         # ── Hyprland lock screen ──
-        "blur, hyprlock"
-        "ignorealpha 0.4, hyprlock"
+        "blur on, match:namespace hyprlock"
+        "ignore_alpha 0.4, match:namespace hyprlock"
       ];
 
 
